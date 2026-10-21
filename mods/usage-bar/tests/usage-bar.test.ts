@@ -18,6 +18,8 @@ test('the line is drawn at session start, as a band above the prompt', async ($,
     return h(Text, {}, 'engine') as JSX.Element
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'consumi' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -37,5 +39,18 @@ test('the line is drawn at session start, as a band above the prompt', async ($,
     const row = await ui.find({ type: 'Text', text: /ctx/ })
     expect(row?.text).toBe(expected)
     await ui.unmount()
+  }
+
+  for (const surface of ['desktop', 'mobile'] as const) {
+    const pane = await $.ui.mount({
+      plugin: 'usage-bar',
+      component: 'Pane',
+      requestId: 'consumi',
+      surface,
+      props: { title: 'Consumi', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+    })
+    expect((await pane.find({ type: 'Text', text: /^7g/ }))?.text).toBe('7g 40%')
+    expect((await pane.find({ type: 'Text', text: /^\$/ }))?.text).toBe('$1.50')
+    await pane.unmount()
   }
 })

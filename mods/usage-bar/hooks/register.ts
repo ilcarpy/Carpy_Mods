@@ -12,9 +12,11 @@ const k = (n: number): string => {
   return `${s ? v.toFixed(1).replace(/\.0$/, '') : v}${s}`
 }
 
+const PANE = 'consumi'
+
 const label: Record<string, string> = { five_hour: '5h', seven_day: '7g', spend_limit: 'extra' }
 
-const format = (t: Totals, u: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>): string => {
+const parts = (t: Totals, u: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>): string[] => {
   const inTotal = t.input + t.cacheRead + t.cacheWrite
   const cache = inTotal > 0 ? `cache ${Math.round((t.cacheRead / inTotal) * 100)}%` : 'cache –'
   const { context } = u
@@ -24,12 +26,12 @@ const format = (t: Totals, u: Pick<SessionUsage, 'context' | 'rateLimits' | 'cos
       : 'ctx –'
   const limits = u.rateLimits.map(r => `${label[r.kind] ?? r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
   const usd = u.cost ? `$${u.cost.usd.toFixed(2)}` : ''
-  return [cache, ctx, `tok ↑${k(inTotal)} ↓${k(t.output)}`, limits, usd].filter(Boolean).join(' · ')
+  return [cache, ctx, `tok ↑${k(inTotal)} ↓${k(t.output)}`, limits, usd].filter(Boolean)
 }
 
 const refresh = async ($: EngineInterface, u?: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>): Promise<void> => {
   try {
-    const text = format(await read($, totals), u ?? (await $.session.usage()))
+    const text = parts(await read($, totals), u ?? (await $.session.usage())).join(' · ')
     await update($, line, () => text)
     $.ui.status(text)
   } catch {
@@ -41,8 +43,16 @@ export const register: Register = on => {
   // Draw the line as soon as the session starts, not only after the first turn.
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    await $.command.register({ name: PANE, description: 'Apre il pannello dei consumi' })
+    // The terminal has the band; elsewhere (the app, cloud sessions) also open a pane, which waits for a surface.
+    if (e.surface !== 'terminal') void $.ui.open({ id: PANE, title: 'Consumi' })
     await refresh($)
     return result
+  })
+
+  on('command.run', { command: PANE }, async $ => {
+    await $.ui.open({ id: PANE, title: 'Consumi' })
+    return { text: 'Pannello consumi aperto.' }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -71,5 +81,13 @@ export const register: Register = on => {
     if (e.props.hasSurvey || !text) return next(e)
     const { Text } = $.ui.resolve(e)
     return h(Text, { dimColor: true }, text) as JSX.Element
+  })
+
+  // The pane shows one figure per row.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const text = await read($, line)
+    const rows = text ? text.split(' · ') : ['in attesa del primo dato…']
+    return h(Box, { flexDirection: 'column' }, ...rows.map(r => h(Text, {}, r))) as JSX.Element
   })
 }
