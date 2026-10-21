@@ -91,9 +91,11 @@ export const register: Register = on => {
     if (e.command || e.isMeta) return next(e)
     try {
       if ((await $.session.surfaces()).length === 0) {
-        const text = compact(await read($, totals), await $.session.usage())
-        if (text) {
-          const ask = `<usage-bar>${text}</usage-bar>\nThe user's usage-bar mod: end your reply with one last line that is exactly the text inside <usage-bar>, unchanged and on its own.`
+        const usage = await $.session.usage()
+        // Before the first answer there is no context figure yet: wait for one.
+        if (usage.context.percent !== undefined) {
+          const text = compact(await read($, totals), usage)
+          const ask = `The user's usage-bar mod asks you to end your reply with the line below as its very last line, copied character for character, with nothing added: no tags, no quotes, no label, no code block.\n${text}`
           return next({ ...e, context: [...(e.context ?? []), ask] })
         }
       }

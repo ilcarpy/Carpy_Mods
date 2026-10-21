@@ -58,7 +58,8 @@ test('with no surface attached, Claude is asked to end its answer with the short
     usage: { model: 'claude', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 90, cache_creation_input_tokens: 0 },
   })
   await $.prompt.submit({ text: 'ciao', wait: false, origin: { kind: 'composer' } })
-  expect(context?.[0]).toContain('<usage-bar>🟢 ctx 25%   🟢 5h 12%   🔴 7g 95%   💵 $1.50   ⚡ cache 90%</usage-bar>')
+  expect(context?.[0]?.split('\n').at(-1)).toBe('🟢 ctx 25%   🟢 5h 12%   🔴 7g 95%   💵 $1.50   ⚡ cache 90%')
+  expect(context?.[0]).not.toContain('<')
 })
 
 test('with a surface attached, the prompt is left as it is', async ($, on) => {
