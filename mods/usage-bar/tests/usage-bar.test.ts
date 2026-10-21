@@ -6,6 +6,15 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 100, scroll: { offset: 0, bodyRows: 4 }, view: {} },
 } as const
 
+const TURN = { reason: 'answer', answer: 'the answer', durationMs: 1000, isAborted: false, turnId: 't1' } as const
+
+const USAGE = {
+  startedAt: 0,
+  context: { tokens: 50_000, window: 200_000, percent: 25 },
+  rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 95.4 }],
+  cost: { usd: 1.5 },
+}
+
 test('the line is drawn at session start, as a band above the prompt', async ($, on) => {
   // These hooks stand for the engine.
   const shown: (string | undefined)[] = []
@@ -18,20 +27,11 @@ test('the line is drawn at session start, as a band above the prompt', async ($,
     return h(Text, {}, 'engine') as JSX.Element
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: { command: 'consumi' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('session.usage', () => ({
-    value: {
-      startedAt: 0,
-      context: { tokens: 50_000, window: 200_000, percent: 25 },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 40.4 }],
-      cost: { usd: 1.5 },
-    },
-  }))
+  on('session.usage', () => ({ value: USAGE }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  const expected = 'cache – · ctx 25% (50k/200k) · tok ↑0 ↓0 · 5h 12% · 7g 40% · $1.50'
+  const expected = 'cache – · ctx 25% (50k/200k) · tok ↑0 ↓0 · 5h 12% · 7g 95% · $1.50'
   expect(shown.at(-1)).toBe(expected)
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -40,17 +40,37 @@ test('the line is drawn at session start, as a band above the prompt', async ($,
     expect(row?.text).toBe(expected)
     await ui.unmount()
   }
+})
 
-  for (const surface of ['desktop', 'mobile'] as const) {
-    const pane = await $.ui.mount({
-      plugin: 'usage-bar',
-      component: 'Pane',
-      requestId: 'consumi',
-      surface,
-      props: { title: 'Consumi', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
-    })
-    expect((await pane.find({ type: 'Text', text: /^7g/ }))?.text).toBe('7g 40%')
-    expect((await pane.find({ type: 'Text', text: /^\$/ }))?.text).toBe('$1.50')
-    await pane.unmount()
-  }
+test('with no surface attached, Claude is asked to end its answer with the short line', async ($, on) => {
+  on('ui.status', () => ({ value: undefined }))
+  on('session.usage', () => ({ value: USAGE }))
+  on('session.surfaces', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: 'the answer' }))
+  let context: readonly string[] | undefined
+  on('prompt.submit', (_, e) => {
+    context = e.context
+    return { text: e.text }
+  })
+
+  await $.turn.complete({
+    ...TURN,
+    usage: { model: 'claude', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 90, cache_creation_input_tokens: 0 },
+  })
+  await $.prompt.submit({ text: 'ciao', wait: false, origin: { kind: 'composer' } })
+  expect(context?.[0]).toContain('<usage-bar>🟢 ctx 25%   🟢 5h 12%   🔴 7g 95%   💵 $1.50   ⚡ cache 90%</usage-bar>')
+})
+
+test('with a surface attached, the prompt is left as it is', async ($, on) => {
+  on('ui.status', () => ({ value: undefined }))
+  on('session.usage', () => ({ value: USAGE }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
+  let context: readonly string[] | undefined
+  on('prompt.submit', (_, e) => {
+    context = e.context
+    return { text: e.text }
+  })
+
+  await $.prompt.submit({ text: 'ciao', wait: false, origin: { kind: 'composer' } })
+  expect(context).toBeUndefined()
 })

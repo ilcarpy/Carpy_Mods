@@ -8,7 +8,7 @@ Il marketplace si chiama `carpy-mods` ed è definito in `.claude-plugin/marketpl
 
 | Mod | Descrizione |
 | --- | --- |
-| [`usage-bar`](mods/usage-bar) | Fascia sopra il prompt e barra di stato: % cache, riempimento contesto, token, limiti di consumo (5h, 7g) e costo sessione |
+| [`usage-bar`](mods/usage-bar) | Fascia sopra il prompt e barra di stato: % cache, riempimento contesto, token, limiti di consumo (5h, 7g) e costo sessione. Nelle sessioni cloud dell'app, dove la fascia non viene disegnata, Claude chiude ogni risposta con una riga corta a pallini (🟢 🟡 🔴). |
 
 ## Installare un mod (app desktop, Code)
 

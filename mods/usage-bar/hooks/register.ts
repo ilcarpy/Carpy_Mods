@@ -3,6 +3,8 @@ import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
 import type { Totals } from '../types'
 
+type Usage = Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>
+
 // Kept in $.state so a reload of the mod does not reset the session totals.
 const totals = atom({ plugin: 'usage-bar', key: 'totals' } as const, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
 const line = atom({ plugin: 'usage-bar', key: 'line' } as const, '')
@@ -12,13 +14,19 @@ const k = (n: number): string => {
   return `${s ? v.toFixed(1).replace(/\.0$/, '') : v}${s}`
 }
 
-const PANE = 'consumi'
-
 const label: Record<string, string> = { five_hour: '5h', seven_day: '7g', spend_limit: 'extra' }
 
-const parts = (t: Totals, u: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>): string[] => {
+// Green, yellow, red as a percentage fills up.
+const dot = (pct: number): string => (pct >= 90 ? '🔴' : pct >= 70 ? '🟡' : '🟢')
+
+const cachePct = (t: Totals): number | undefined => {
   const inTotal = t.input + t.cacheRead + t.cacheWrite
-  const cache = inTotal > 0 ? `cache ${Math.round((t.cacheRead / inTotal) * 100)}%` : 'cache –'
+  return inTotal > 0 ? Math.round((t.cacheRead / inTotal) * 100) : undefined
+}
+
+// The full line: status line and band above the prompt.
+const format = (t: Totals, u: Usage): string => {
+  const cache = cachePct(t)
   const { context } = u
   const ctx =
     context.percent !== undefined && context.tokens !== undefined
@@ -26,12 +34,28 @@ const parts = (t: Totals, u: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost
       : 'ctx –'
   const limits = u.rateLimits.map(r => `${label[r.kind] ?? r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
   const usd = u.cost ? `$${u.cost.usd.toFixed(2)}` : ''
-  return [cache, ctx, `tok ↑${k(inTotal)} ↓${k(t.output)}`, limits, usd].filter(Boolean)
+  const tok = `tok ↑${k(t.input + t.cacheRead + t.cacheWrite)} ↓${k(t.output)}`
+  return [cache === undefined ? 'cache –' : `cache ${cache}%`, ctx, tok, limits, usd].filter(Boolean).join(' · ')
 }
 
-const refresh = async ($: EngineInterface, u?: Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>): Promise<void> => {
+// The short line Claude writes at the end of its answer where nothing draws the band (cloud sessions in the app).
+const compact = (t: Totals, u: Usage): string => {
+  const parts: string[] = []
+  const pct = u.context.percent
+  if (pct !== undefined) parts.push(`${dot(pct)} ctx ${pct}%`)
+  for (const r of u.rateLimits) {
+    const p = Math.round(r.percentUsed)
+    parts.push(`${dot(p)} ${label[r.kind] ?? r.kind} ${p}%`)
+  }
+  if (u.cost) parts.push(`💵 $${u.cost.usd.toFixed(2)}`)
+  const cache = cachePct(t)
+  if (cache !== undefined) parts.push(`⚡ cache ${cache}%`)
+  return parts.join('   ')
+}
+
+const refresh = async ($: EngineInterface, u?: Usage): Promise<void> => {
   try {
-    const text = parts(await read($, totals), u ?? (await $.session.usage())).join(' · ')
+    const text = format(await read($, totals), u ?? (await $.session.usage()))
     await update($, line, () => text)
     $.ui.status(text)
   } catch {
@@ -43,16 +67,8 @@ export const register: Register = on => {
   // Draw the line as soon as the session starts, not only after the first turn.
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    await $.command.register({ name: PANE, description: 'Apre il pannello dei consumi' })
-    // The terminal has the band; elsewhere (the app, cloud sessions) also open a pane, which waits for a surface.
-    if (e.surface !== 'terminal') void $.ui.open({ id: PANE, title: 'Consumi' })
     await refresh($)
     return result
-  })
-
-  on('command.run', { command: PANE }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Consumi' })
-    return { text: 'Pannello consumi aperto.' }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -69,6 +85,24 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Without a surface (cloud sessions in the app) only the answer reaches the screen,
+  // so ask Claude to end its answer with the short line. The context block is unseen by the user.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command || e.isMeta) return next(e)
+    try {
+      if ((await $.session.surfaces()).length === 0) {
+        const text = compact(await read($, totals), await $.session.usage())
+        if (text) {
+          const ask = `<usage-bar>${text}</usage-bar>\nThe user's usage-bar mod: end your reply with one last line that is exactly the text inside <usage-bar>, unchanged and on its own.`
+          return next({ ...e, context: [...(e.context ?? []), ask] })
+        }
+      }
+    } catch {
+      // never block a prompt over a status line
+    }
+    return next(e)
+  })
+
   // Rate limits and cost also move between turns.
   on('session.measure', async ($, e, next) => {
     await refresh($, e)
@@ -81,13 +115,5 @@ export const register: Register = on => {
     if (e.props.hasSurvey || !text) return next(e)
     const { Text } = $.ui.resolve(e)
     return h(Text, { dimColor: true }, text) as JSX.Element
-  })
-
-  // The pane shows one figure per row.
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const text = await read($, line)
-    const rows = text ? text.split(' · ') : ['in attesa del primo dato…']
-    return h(Box, { flexDirection: 'column' }, ...rows.map(r => h(Text, {}, r))) as JSX.Element
   })
 }
