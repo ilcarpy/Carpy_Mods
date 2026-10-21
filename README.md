@@ -8,7 +8,7 @@ Il marketplace si chiama `carpy-mods` ed è definito in `.claude-plugin/marketpl
 
 | Mod | Descrizione |
 | --- | --- |
-| [`usage-bar`](mods/usage-bar) | Barra di stato: % cache, riempimento contesto, token, limiti di consumo e costo sessione |
+| [`usage-bar`](mods/usage-bar) | Fascia sopra il prompt e barra di stato: % cache, riempimento contesto, token, limiti di consumo (5h, 7g) e costo sessione |
 
 ## Installare un mod (app desktop, Code)
 
@@ -41,3 +41,5 @@ mods/<nome-mod>/
     ├── hooks.json               # { "modules": ["./register.ts"] }
     └── register.ts              # il modulo (tipo Register da 'claude-code')
 ```
+
+Facoltativi: `types/index.d.ts` (contratto dei valori in `$.state`, indicato in `plugin.json` come `"types"`) e `tests/*.test.ts` (si lanciano con `claude plugin test mods/<nome-mod>`).
