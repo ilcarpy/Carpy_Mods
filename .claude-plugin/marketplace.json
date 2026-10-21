@@ -1,0 +1,14 @@
+{
+  "name": "carpy-mods",
+  "description": "Mod personali per Claude Code: barra di stato, pannelli, comandi, hook",
+  "owner": {
+    "name": "ilcarpy"
+  },
+  "plugins": [
+    {
+      "name": "usage-bar",
+      "source": "./mods/usage-bar",
+      "description": "Status line: cache hit %, context fill, tokens, rate limits and session cost"
+    }
+  ]
+}
